@@ -7,7 +7,7 @@ Data & Metadata
 - Metadata: `metadata.txt` (sample annotations)  
 - Samples are grouped by:
   - Treatment type
-  - Timepoint (3 vs 6 days)**
+  - Timepoint (3 vs 6 days)
 
 Setup
 
