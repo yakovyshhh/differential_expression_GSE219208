@@ -1,0 +1,524 @@
+---
+title: "Differential Gene Expression Analysis of GSE219208"
+output: html_document
+date: "2024-09-10"
+editor_options: 
+  chunk_output_type: inline
+---
+
+## setup
+```{r}
+#install.packages("pacman")
+#install.packages("here")
+
+#getwd()
+
+pacman::p_load("here", "tidyverse", "DESeq2", "ashr", "maEndToEnd",  "EnhancedVolcano", "pd.mogene.2.0.st", "enrichR", "gprofiler2", "dplyr", "ggplot2")
+i_am("differential_expression_GSE219208.Rmd")
+
+```
+
+```{r}
+#install.packages('BiocManager')
+#BiocManager::install('GEOquery')
+library("GEOquery")
+gse=getGEO(filename="metadata.txt")
+write.table(gse, file='metadata.txt')
+read.table("metadata.txt")
+
+```
+
+
+```{r}
+counts <- read.csv(here("counts.csv"), row.names = 1)
+metadata <- read.table("metadata.txt", header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+```
+
+
+```{r}
+coldata <- data.frame(
+  title = factor(c("corth2_S20", "corth3_S12", "corth4_S19", "corthwo2_S11", "corthwo3_S13", "corthwo4_S4", "cortl2_S14", "cortl3_S19", "cortl4_S13", "cortlwo2_S18", "cortlwo3_S6","cortlwo4_S2", "Ctl1_S8", "ctl3_S10", "	ctl4_S5", "cvh1_S21", "cvh2_S16", "cvh3_S14", "cvhwo1_S1", "cvl1_S18", "cvl2_S11", "	cvl4_S7", "cvlwo2_S1", "dexh2_S15", "dexh3_S20", "dexh4_S7", "dexhwo2_S12", "dexhwo3_S17", "dexhwo4_S5", "dexl1_S16", "dexl2_S15", "dexl3_S9", "dexlwo1_S22", "dexlwo2_S3", "dexlwo3_S21", "dvh1_S4", "dvh2_S8", "dvh4_S10", "	dvhwo4_S9", "dvl1_S3", "dvl2_S6", "dvl3_S2", "dvlwo3_S17")),
+  time..days..ch1 = factor(rep(c(3, 6), length.out = 43)),  # Adjust to 43 samples
+  treatment.ch1 = factor(rep(c("cort low3", "cort low6", "cort high3", "cort high6", 
+                               "control3", "cort vehicle high3", "cort vehicle low3", 
+                               "cort vehicle low6", "dex high3", "dex high6", "dex low3", 
+                               "dex low6", "dex vehicle high3", "dex vehicle low3", 
+                               "dex vehicle high6"), length.out = 43))
+)
+```
+
+
+```{r}
+
+rownames(coldata) <- coldata$title
+
+matching_samples <- intersect(colnames(counts), rownames(coldata))
+
+counts_subset <- counts[, matching_samples]
+subset_data <- coldata[matching_samples, ]
+
+print(dim(counts_subset))
+print(dim(subset_data))
+```
+```{r}
+
+dds_subset <- DESeqDataSetFromMatrix(
+  countData = counts_subset,
+  colData = subset_data,
+  design = ~ time..days..ch1
+)
+
+dds_subset <- DESeq(dds_subset)
+res_treatment <- results(dds_subset)
+```
+
+```{r}
+
+summary(res_treatment)
+
+res_treatment_ordered <- res_treatment[order(res_treatment$padj), ]
+
+head(res_treatment_ordered)
+```
+
+```{r}
+
+sig_genes <- res_treatment_ordered[
+  which(res_treatment_ordered$padj < 0.05 & abs(res_treatment_ordered$log2FoldChange) > 0.27), 
+]
+
+head(sig_genes)
+```
+
+```{r}
+sig_genes
+```
+
+
+##Volcano
+
+
+```{r}
+
+EnhancedVolcano(res_treatment,
+    lab = rownames(res_treatment),
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    pCutoff = 0.05,  
+    FCcutoff = 1,  
+    title = 'Volcano plot: GSE219208',
+    subtitle = 'GSE219208',
+    xlab = 'Log2 Fold Change',
+    ylab = '-Log10 p-value'
+)
+```
+
+
+```{r}
+
+write.csv(as.data.frame(sig_genes), file = "significant_genes1.csv")
+```
+
+```{r}
+install.packages("gt")
+
+```
+
+
+
+
+
+```{r}
+
+library(gt)
+
+# Convert sig_genes to a data frame and add rownames as a column
+sig_genes_df <- as.data.frame(sig_genes)
+sig_genes_df$gene <- rownames(sig_genes_df)
+
+# Create a GT table
+gt_table <- sig_genes_df %>%
+  gt() %>%
+  tab_header(
+    title = "Top Significant Genes",
+    subtitle = "Differential Expression Analysis"
+  ) %>%
+  cols_label(
+    baseMean = "Base Mean",
+    log2FoldChange = "Log2 Fold Change",
+    lfcSE = "LFC SE",
+    stat = "Wald Statistic",
+    pvalue = "P-value",
+    padj = "Adjusted P-value",
+    gene = "Gene ID"
+  ) %>%
+  fmt_number(
+    columns = c(baseMean, log2FoldChange, lfcSE, stat, pvalue, padj),
+    decimals = 3
+  ) %>%
+  tab_options(
+    table.font.size = "medium",
+    heading.title.font.size = "large"
+  )
+
+
+gt_table
+```
+
+```{r}
+sig_genes
+```
+
+
+##PCA
+
+```{r}
+vsd <- vst(dds_subset, blind=FALSE)
+
+plotPCA(vsd, intgroup=c("treatment.ch1"))
+
+```
+
+
+
+##heatmap
+
+```{r}
+
+if (!requireNamespace("pheatmap", quietly = TRUE)) {
+    install.packages("pheatmap")
+}
+```
+
+```{r}
+
+vsd <- vst(dds_subset, blind = FALSE)
+
+
+top_genes <- rownames(res_treatment_ordered)[1:43]
+
+
+normalized_counts <- assay(vsd)[top_genes, ]
+
+
+normalized_counts_scaled <- t(scale(t(normalized_counts)))
+```
+
+
+```{r}
+
+library(pheatmap)
+
+
+pheatmap(normalized_counts_scaled,
+         cluster_rows = TRUE, 
+         cluster_cols = TRUE,  
+         annotation_col = as.data.frame(coldata), 
+         show_rownames = TRUE,
+         show_colnames = FALSE,
+         main = "Heatmap of Top Differentially Expressed Genes")
+
+```
+
+
+
+
+
+
+##functional analysis
+
+
+
+```{r}
+#if (!requireNamespace("BiocManager", quietly = TRUE)) {
+#    install.packages("BiocManager")
+#}
+#BiocManager::install("clusterProfiler")
+#BiocManager::install("org.Hs.eg.db")
+```
+
+```{r}
+#library(clusterProfiler)
+#library(org.Hs.eg.db)  
+```
+
+```{r}
+#head(sig_gene_list)
+```
+
+```{r}
+#keytypes(org.Hs.eg.db)
+```
+
+```{r}
+#head(keys(org.Hs.eg.db, keytype = "ENSEMBL"))
+```
+
+```{r}
+#sig_genes_entrez <- bitr(sig_gene_list, fromType = "ENSEMBL", 
+#                         toType = "ENTREZID", 
+#                         OrgDb = org.Hs.eg.db)
+```
+
+```{r}
+#head(sig_genes_entrez)
+```
+
+```{r}
+de_results <- read.csv(here("significant_genes.csv"), row.names = 1)
+```
+
+```{r}
+sig_genes <- de_results %>% filter(padj < 0.05)
+```
+
+
+##enrichR
+
+
+```{r}
+gostres <- gost(query = rownames(de_results), organism = "hsapiens",
+    ordered_query = TRUE)
+
+gostres_res <- gostres$result
+
+gostplot(gostres, capped = FALSE, interactive = FALSE)
+
+```
+```{r}
+gostres_res
+```
+
+
+```{r}
+de_results <- gostres_res
+dbs <- listEnrichrDbs()
+dbs <- c("GO_Molecular_Function_2023", "GO_Biological_Process_2023", "GO_Cellular_Component_2023")
+
+enriched_up <- enrichr(rownames(de_results %>% dplyr::filter(log2FoldChange > 0) %>%arrange(desc(log2FoldChange))), dbs)
+
+enriched_down <- enrichr(rownames(de_results %>% dplyr::filter(log2FoldChange < 0) %>%arrange(log2FoldChange)), dbs)
+
+plot_enrichr_results(enriched_up$GO_Biological_Process_2023)
+
+plot_enrichr_results(enriched_down$GO_Biological_Process_2023)
+
+enriched <- enrichr(rownames(de_results), dbs)
+plot_enrichr_results(enriched$GO_Biological_Process_2023)
+
+```
+
+
+```{r}
+p <- gostplot(gostres, capped = FALSE, interactive = FALSE)
+publish_gostplot(p, highlight_terms = c("GO:0005840", "GO:0003735", "GO:0005198"))
+```
+
+
+## Time-Course Expression Plot
+
+
+##1
+```{r}
+top_gene1 <- rownames(sig_genes)[1]  
+
+
+time_course_data <- data.frame(
+  sample = colnames(normalized_counts),
+  expression = normalized_counts[top_gene1, ],
+  time = subset_data$time..days..ch1,
+  treatment = subset_data$treatment.ch1
+)
+
+```
+
+```{r}
+ggplot(time_course_data, aes(x = time, y = expression, group = treatment, color = treatment)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = paste("Time-Course Expression of", top_gene1),
+    x = "Time (Days)",
+    y = "Normalized Expression"
+  ) +
+  theme_minimal()
+```
+
+
+##2
+
+```{r}
+top_gene2 <- rownames(sig_genes)[2]  
+
+
+time_course_data <- data.frame(
+  sample = colnames(normalized_counts),
+  expression = normalized_counts[top_gene2, ],
+  time = subset_data$time..days..ch1,
+  treatment = subset_data$treatment.ch1
+)
+
+```
+
+```{r}
+ggplot(time_course_data, aes(x = time, y = expression, group = treatment, color = treatment)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = paste("Time-Course Expression of", top_gene2),
+    x = "Time (Days)",
+    y = "Normalized Expression"
+  ) +
+  theme_minimal()
+```
+
+##3
+```{r}
+top_gene3 <- rownames(sig_genes)[3]  
+
+
+time_course_data <- data.frame(
+  sample = colnames(normalized_counts),
+  expression = normalized_counts[top_gene2, ],
+  time = subset_data$time..days..ch1,
+  treatment = subset_data$treatment.ch1
+)
+
+```
+
+```{r}
+ggplot(time_course_data, aes(x = time, y = expression, group = treatment, color = treatment)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = paste("Time-Course Expression of", top_gene3),
+    x = "Time (Days)",
+    y = "Normalized Expression"
+  ) +
+  theme_minimal()
+```
+##4
+```{r}
+top_gene4<- rownames(sig_genes)[4]  
+
+
+time_course_data <- data.frame(
+  sample = colnames(normalized_counts),
+  expression = normalized_counts[top_gene4, ],
+  time = subset_data$time..days..ch1,
+  treatment = subset_data$treatment.ch1
+)
+
+```
+
+```{r}
+ggplot(time_course_data, aes(x = time, y = expression, group = treatment, color = treatment)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = paste("Time-Course Expression of", top_gene4),
+    x = "Time (Days)",
+    y = "Normalized Expression"
+  ) +
+  theme_minimal()
+```
+##5
+```{r}
+top_gene5 <- rownames(sig_genes)[5]  
+
+
+time_course_data <- data.frame(
+  sample = colnames(normalized_counts),
+  expression = normalized_counts[top_gene5, ],
+  time = subset_data$time..days..ch1,
+  treatment = subset_data$treatment.ch1
+)
+
+```
+
+```{r}
+ggplot(time_course_data, aes(x = time, y = expression, group = treatment, color = treatment)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = paste("Time-Course Expression of", top_gene5),
+    x = "Time (Days)",
+    y = "Normalized Expression"
+  ) +
+  theme_minimal()
+```
+##6
+```{r}
+top_gene6 <- rownames(sig_genes)[6]  
+
+
+time_course_data <- data.frame(
+  sample = colnames(normalized_counts),
+  expression = normalized_counts[top_gene6, ],
+  time = subset_data$time..days..ch1,
+  treatment = subset_data$treatment.ch1
+)
+
+```
+
+```{r}
+ggplot(time_course_data, aes(x = time, y = expression, group = treatment, color = treatment)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = paste("Time-Course Expression of", top_gene6),
+    x = "Time (Days)",
+    y = "Normalized Expression"
+  ) +
+  theme_minimal()
+```
+
+
+##Cumulative Distribution Plot of p-values
+
+```{r}
+
+library(ggplot2)
+
+
+p_values <- res_treatment$pvalue
+
+p_values <- na.omit(p_values)
+
+p_values_df <- data.frame(pvalue = p_values)
+
+```
+
+
+```{r}
+ggplot(p_values_df, aes(x = pvalue)) +
+  stat_ecdf(geom = "step", color = "blue") +
+  labs(
+    title = "Cumulative Distribution of p-values",
+    x = "p-value",
+    y = "Cumulative Probability"
+  ) +
+  theme_minimal()
+```
+
+
+##MA Plot
+
+```{r}
+ggplot(as.data.frame(res_treatment), aes(x = baseMean, y = log2FoldChange)) +
+  geom_point(aes(color = padj < 0.05), alpha = 0.5) +
+  scale_color_manual(values = c("black", "red")) +
+  scale_x_log10() +
+  labs(
+    title = "MA Plot",
+    x = "Mean Expression (log scale)",
+    y = "Log2 Fold Change"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+
+
