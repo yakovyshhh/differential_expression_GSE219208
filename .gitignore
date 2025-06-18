@@ -1,0 +1,25 @@
+# R files
+.RData
+.Rhistory
+.Rproj.user/
+
+# R Markdown output
+*.html
+*.pdf
+*.docx
+*.nb.html
+
+# Excel/CSV outputs
+*.xlsx
+*.csv
+
+# Pathview or KEGG images
+*.png
+*.svg
+
+# System files (Windows/macOS)
+.DS_Store
+Thumbs.db
+
+# Temporary files or backups
+*~
